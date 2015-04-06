@@ -7,6 +7,8 @@ var cli = require('cli')
   , util = require('util')
   , backup = require('../')
   , cronJob = require('cron').CronJob
+  , fs = require("fs")
+  , path = require("path")
   , pkg = require('../package.json')
   , crontab = "0 0 * * *"
   , timezone = "America/New_York"
@@ -23,17 +25,24 @@ options = cli.parse({
 });
 
 if(cli.args.length !== 1) {
-  return cli.getUsage();
+  //look for a config.json in the process dir
+  configPath = path.join(process.cwd(), "config.json");
+  fs.exists(configPath, function(exists){
+    if(!exists){
+      return cli.getUsage();
+    }
+  });
+
 }
 
 /* Configuration */
 
-configPath = path.resolve(process.cwd(), cli.args[0]);
+configPath = configPath || path.resolve(process.cwd(), cli.args[0]);
 backup.log('Loading config file (' + configPath + ')');
 config = require(configPath);
 
 if(options.now) {
-  backup.sync(config.mongodb, config.s3, function(err) {
+  backup.sync(config.rethinkdb, config.s3, function(err) {
     process.exit(err ? 1 : 0);
   });
 } else {
@@ -61,7 +70,7 @@ if(options.now) {
   }
 
   new cronJob(crontab, function(){
-    backup.sync(config.mongodb, config.s3);
+    backup.sync(config.rethinkdb, config.s3);
   }, null, true, timezone);
-  backup.log('MongoDB S3 Backup Successfully scheduled (' + crontab + ')');
+  backup.log('Rethink Nightly Backup Successfully scheduled (' + crontab + ')');
 }

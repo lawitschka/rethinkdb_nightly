@@ -1,12 +1,14 @@
-# Node MongoDB / S3 Backup
+# Node RethinkDB / S3 Backup
 
-This is a package that makes backing up your mongo databases to S3 simple.
+*Original work is from [Swift](https://github.com/theycallmeswift/node-mongodb-s3-backup). I just moved a few things around to accommodate RethinkDB*
+
+This is a package that makes backing up your RethinkDB databases to S3 simple.
 The binary file is a node cronjob that runs at midnight every day and backs up
 the database specified in the config file.
 
 ## Installation
 
-    npm install mongodb_s3_backup -g
+    npm install rethinkdb_nightly -g
 
 ## Configuration
 
@@ -15,11 +17,9 @@ There is a sample configuration file supplied in the package (`config.sample.jso
 The file should have the following format:
 
     {
-      "mongodb": {
+      "rethinkdb": {
         "host": "localhost",
-        "port": 27017,
-        "username": false,
-        "password": false,
+        "port": 28015,
         "db": "database_to_backup"
       },
       "s3": {
@@ -48,7 +48,7 @@ you need it.
 ### Timezones
 
 The optional "timezone" allows you to specify timezone-relative time regardless
-of local timezone on the host machine. 
+of local timezone on the host machine.
 
       "cron": {
         "time": "00:00",
@@ -61,8 +61,8 @@ You must first `npm install time` to use "timezone" specification.
 
 To start a long-running process with scheduled cron job:
 
-    mongodb_s3_backup <path to config file>
+  rethinkdb_nightly <path to config file>
 
 To execute a backup immediately and exit:
 
-    mongodb_s3_backup -n <path to config file>
+  rethinkdb_nightly -n <path to config file>

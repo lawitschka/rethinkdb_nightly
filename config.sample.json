@@ -1,9 +1,7 @@
 {
-  "mongodb": {
+  "rethinkdb": {
     "host": "localhost",
-    "port": 27017,
-    "username": false,
-    "password": false,
+    "port": 28015,
     "db": "database_to_backup"
   },
   "s3": {
@@ -16,4 +14,3 @@
     "time": "00:00"
   }
 }
-

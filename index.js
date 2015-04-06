@@ -1,4 +1,7 @@
-'use strict';
+var moment = require("moment");
+var util = require("util");
+var fs = require("fs");
+var path = require("path");
 
 var exec = require('child_process').exec
   , spawn = require('child_process').spawn
@@ -37,18 +40,7 @@ function log(message, tag) {
  * @param databaseName   The name of the database
  */
 function getArchiveName(databaseName) {
-  var date = new Date()
-    , datestring;
-
-  datestring = [
-    databaseName,
-    date.getFullYear(),
-    date.getMonth() + 1,
-    date.getDate(),
-    date.getTime()
-  ];
-
-  return datestring.join('_') + '.tar.gz';
+  return util.format("%s_%s_dump.tar.gz",databaseName, moment().format("YYYY-MM-DD"))
 }
 
 /* removeRF
@@ -71,96 +63,64 @@ function removeRF(target, callback) {
     exec( 'rm -rf ' + target, callback);
   });
 }
-
+function checkTempDir(tmp, callback){
+  fs.exists(tmp, function(exists){
+    if(!exists){
+      fs.mkdir(tmp, callback)
+    }else{
+      callback(null,true);
+    }
+  });
+}
 /**
- * mongoDump
+ * dbDump
  *
- * Calls mongodump on a specified database.
+ * Calls dump on a specified cluster.
  *
- * @param options    MongoDB connection options [host, port, username, password, db]
+ * @param options    RethinkDB connection options [host, port, username, password, db]
  * @param directory  Directory to dump the database to
  * @param callback   callback(err)
  */
-function mongoDump(options, directory, callback) {
-  var mongodump
-    , mongoOptions;
+function dbDump(options, directory, archiveName, callback) {
+  var dump
+    , rethinkOptions;
 
   callback = callback || function() { };
 
-  mongoOptions= [
-    '-h', options.host + ':' + options.port,
-    '-d', options.db,
-    '-o', directory
+  rethinkOptions= [
+    'dump',
+    '-c', options.host + ':' + options.port,
+    '-f', path.join(directory,archiveName)
   ];
+  //set the filename to now
 
-  if(options.username && options.password) {
-    mongoOptions.push('-u');
-    mongoOptions.push(options.username);
-
-    mongoOptions.push('-p');
-    mongoOptions.push(options.password);
+  if(options.auth_key) {
+    rethinkOptions.push('-a');
+    rethinkOptions.push(options.auth_key);
   }
 
-  log('Starting mongodump of ' + options.db, 'info');
-  mongodump = spawn('mongodump', mongoOptions);
+  log('Starting dump of ' + options.db, 'info');
+  dump = spawn('rethinkdb', rethinkOptions);
 
-  mongodump.stdout.on('data', function (data) {
+  dump.stdout.on('data', function (data) {
     log(data);
   });
 
-  mongodump.stderr.on('data', function (data) {
+  dump.stderr.on('data', function (data) {
     log(data, 'error');
   });
-
-  mongodump.on('exit', function (code) {
+  dump.on("error", function(err){
+    log(err, 'error');
+  })
+  dump.on('exit', function (code) {
     if(code === 0) {
-      log('mongodump executed successfully', 'info');
+      log('dump executed successfully', 'info');
       callback(null);
     } else {
-      callback(new Error("Mongodump exited with code " + code));
+      callback(new Error("Rethinkdb dump exited with code " + code));
     }
   });
 }
-
-/**
- * compressDirectory
- *
- * Compressed the directory so we can upload it to S3.
- *
- * @param directory  current working directory
- * @param input     path to input file or directory
- * @param output     path to output archive
- * @param callback   callback(err)
- */
-function compressDirectory(directory, input, output, callback) {
-  var tar
-    , tarOptions;
-
-  callback = callback || function() { };
-
-  tarOptions = [
-    '-zcf',
-    output,
-    input
-  ];
-
-  log('Starting compression of ' + input + ' into ' + output, 'info');
-  tar = spawn('tar', tarOptions, { cwd: directory });
-
-  tar.stderr.on('data', function (data) {
-    log(data, 'error');
-  });
-
-  tar.on('exit', function (code) {
-    if(code === 0) {
-      log('successfully compress directory', 'info');
-      callback(null);
-    } else {
-      callback(new Error("Tar exited with code " + code));
-    }
-  });
-}
-
 /**
  * sendToS3
  *
@@ -172,6 +132,7 @@ function compressDirectory(directory, input, output, callback) {
  * @param callback  callback(err)
  */
 function sendToS3(options, directory, target, callback) {
+  console.log(directory);
   var knox = require('knox')
     , sourceFile = path.join(directory, target)
     , s3client
@@ -214,32 +175,33 @@ function sendToS3(options, directory, target, callback) {
 /**
  * sync
  *
- * Performs a mongodump on a specified database, gzips the data,
+ * Performs a dump on a your cluster, gzips the data,
  * and uploads it to s3.
  *
- * @param mongodbConfig   mongodb config [host, port, username, password, db]
+ * @param rethinkdbConfig   rethinkdb config [host, port, username, password, db]
  * @param s3Config        s3 config [key, secret, bucket]
  * @param callback        callback(err)
  */
-function sync(mongodbConfig, s3Config, callback) {
-  var tmpDir = path.join(require('os').tmpDir(), 'mongodb_s3_backup')
-    , backupDir = path.join(tmpDir, mongodbConfig.db)
-    , archiveName = getArchiveName(mongodbConfig.db)
+function sync(rethinkdbConfig, s3Config, callback) {
+  var tmpDir = path.join(process.cwd(), 'temp')
+    , backupDir = path.join(tmpDir, rethinkdbConfig.db)
+    , archiveName = getArchiveName(rethinkdbConfig.db)
     , async = require('async');
 
   callback = callback || function() { };
 
   async.series([
+    async.apply(checkTempDir, tmpDir),
     async.apply(removeRF, backupDir),
     async.apply(removeRF, path.join(tmpDir, archiveName)),
-    async.apply(mongoDump, mongodbConfig, tmpDir),
-    async.apply(compressDirectory, tmpDir, mongodbConfig.db, archiveName),
+    async.apply(dbDump, rethinkdbConfig, tmpDir,archiveName),
+    //async.apply(compressDirectory, tmpDir, rethinkdbConfig.db, archiveName),
     async.apply(sendToS3, s3Config, tmpDir, archiveName)
   ], function(err) {
     if(err) {
       log(err, 'error');
     } else {
-      log('Successfully backed up ' + mongodbConfig.db);
+      log('Successfully backed up ' + rethinkdbConfig.db);
     }
     return callback(err);
   });
